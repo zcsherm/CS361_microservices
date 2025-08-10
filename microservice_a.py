@@ -7,6 +7,7 @@
 # Gets a new image from text file
 # Updates the requested file with the new image
 import os
+import shutil
 import time
 
 PIPE = "image_pipe.txt"
@@ -138,7 +139,7 @@ class Microservice:
         # Strip out the resource name
         original_file = ""
         for i in range(len(filename),0,-1):
-            if filename[i] == '/' or filename[i] == '\':
+            if filename[i] == '/' or filename[i] == "\\":
                 original_file = filename[i + 1:]
                 break
         original_file = IMAGE_DIRECTORY + '/' + original_file

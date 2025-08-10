@@ -1,6 +1,7 @@
 import pickle
 import os
-import Player from player_record
+import time
+from player_record import Player
 
 PIPE = "player_pipe.txt"
 ADD_REQUEST = "ADD"
@@ -10,7 +11,6 @@ QUIT_REQUEST = "QUIT"
 USER_SELECT = "USER"
 REQUESTS = [ADD_REQUEST, REMOVE_REQUEST, REMOVE_REQUEST, QUIT_REQUEST]
 
-REQUESTS = {ADD_REQUEST: }
 WHICH_PLAYER = "PLAYER"
 WHICH_TEAM = "TEAM"
 FAILED_READ = "INVALID"
@@ -68,11 +68,11 @@ class Microservice:
         """
         Creates the communication pipe if it does not exist
         """
-        if not os.path.isfile(path):
+        if not os.path.isfile(PIPE):
             print(f"creating pipeline with name {PIPE}...")
             if not os.path.isfile(PIPE):
-            with open(PIPE, 'w') as file:
-                file.write('')
+                with open(PIPE, 'w') as file:
+                    file.write('')
         
     def make_player_directory(self):
         """
@@ -180,7 +180,7 @@ class Microservice:
         if self.last_write != FORBIDDEN:
             self.save_user_data(user)
 
-    def get_user_file(username):
+    def get_user_file(self, username):
         """
         Loads the requested users save file
         """
@@ -212,8 +212,8 @@ class Microservice:
         Check if the requested user currently exists in the dataset
         """
         try:
-            self.players[player]
-            print(f"{Player successfully found!}")
+            a = self.players[player]
+            print(f"{player} successfully found!")
         except KeyError:
             print(f"Unable to find player {player}!")
             self.write_to_pipe(NOT_FOUND)
@@ -249,8 +249,8 @@ class Microservice:
             return
 
         # Load in the players save file, validate the player
-        self.get_user_file()
-        self.validate_player_exists
+        self.get_user_file(user)
+        self.validate_player_exists(player)
         if self.last_write == NOT_FOUND:
             return
 
