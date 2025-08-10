@@ -165,3 +165,7 @@ class Microservice:
     def quit(self):
         self.write_to_pipe('')
         self.last_write = QUIT_REQUEST
+
+
+if __name__ == '__main__':
+    Microservice()

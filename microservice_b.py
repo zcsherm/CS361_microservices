@@ -1,6 +1,9 @@
 import pickle
 import os
 import time
+
+from tensorflow.compiler.xla.xla_data_pb2 import INVALID
+
 from player_record import Player
 
 PIPE = "player_pipe.txt"
@@ -9,7 +12,8 @@ REMOVE_REQUEST = "REMOVE"
 CREATE_REQUEST = "CREATE"
 QUIT_REQUEST = "QUIT"
 USER_SELECT = "USER"
-REQUESTS = [ADD_REQUEST, REMOVE_REQUEST, REMOVE_REQUEST, QUIT_REQUEST]
+GET_PLAYERS = "LIST"
+REQUESTS = [ADD_REQUEST, REMOVE_REQUEST, REMOVE_REQUEST, GET_PLAYERS, QUIT_REQUEST]
 
 WHICH_PLAYER = "PLAYER"
 WHICH_TEAM = "TEAM"
@@ -37,6 +41,7 @@ class Microservice:
                         ADD_REQUEST: self.add_player,
                         REMOVE_REQUEST: self.remove_player,
                         CREATE_REQUEST: self.add_new_player_to_database,
+                        GET_PLAYERS: self.get_player_list,
                         QUIT_REQUEST: self.quit
                         }
         
@@ -44,7 +49,6 @@ class Microservice:
         self.make_pipe()
         self.make_player_directory()
         self.open_master()
-
         # Launch into the main loop
         self.last_write = None
         self.main()
@@ -91,19 +95,21 @@ class Microservice:
         player_names = []
         players = {}
         with open(PLAYER_NAMES,'r') as file:
-            for line in file.read():
-                player_names.append(line)
-
+            for line in file:
+                player_names.append(line.rstrip())
+        print(player_names)
         # Construct a new player from each name and add it to the master file
         count = 0
-        for player in players:
+        for player in player_names:
             data = {"name": player,
                     "id": count,
-                    "current_team": None
+                    "current team": None,
+                    "seasons": []
                    }
-            players[player_names] = Player(data)
+            players[player] = Player(data)
             count += 1
         print(f"creating a masterfile with name {MASTER_FILE}...")
+        print(players)
         with open(MASTER_FILE, 'wb') as file:
             pickle.dump(players, file)
 
@@ -179,6 +185,7 @@ class Microservice:
         # If the addition was successful then save the users new data
         if self.last_write != FORBIDDEN:
             self.save_user_data(user)
+        time.sleep(1)
 
     def get_user_file(self, username):
         """
@@ -197,7 +204,7 @@ class Microservice:
         print(f"Opening the users save file...")
         with open(user_file, 'rb') as file:
             self.players = pickle.load(file)
-        
+        print(self.players['jasper'].get_current_team())
     def save_user_data(self, username):
         """
         Saves the current changes to the users data to their save file
@@ -207,7 +214,7 @@ class Microservice:
         with open(user_file, 'wb') as file:
             pickle.dump(self.players, file)
         
-    def validate_player_exists(self, player):
+    def validate_player_exists(self, player, new_player = False):
         """
         Check if the requested user currently exists in the dataset
         """
@@ -216,6 +223,8 @@ class Microservice:
             print(f"{player} successfully found!")
         except KeyError:
             print(f"Unable to find player {player}!")
+            if new_player:
+                return True
             self.write_to_pipe(NOT_FOUND)
         
     def validate_player_available(self, player, team):
@@ -225,8 +234,8 @@ class Microservice:
         # Set team to None object if appropriate
         if team.upper() == 'NONE':
             team = None
-        current_team = self.players[player]['current_team']
-
+        current_team = self.players[player].get_current_team()
+        print(current_team , team)
         # If the current team is the passed team, or the player is currently reserved, then send back 
         if (current_team != None and team != None) or current_team == team:
             print(f"{Player} is unable to be added to {team}! Current team is {current_team}.")
@@ -236,7 +245,8 @@ class Microservice:
         else:
             print(f"{Player} is eligible for transfer! Updating player team...")
             self.write_to_pipe(SUCCESS)
-            self.players[player]['current_team'] = team
+            self.players[player].update_current_team(team)
+            print(self.players[player].get_current_team())
 
     def remove_player(self):
         """
@@ -258,7 +268,8 @@ class Microservice:
         self.validate_player_available(player, team='none')
         if self.last_write != FORBIDDEN:
             self.save_user_data(user)
-            
+        time.sleep(1)
+
     def get_query_params(self):
         """
         Gets request parametes from client
@@ -279,26 +290,30 @@ class Microservice:
         """
         # Get the parameters from the request and exit if the request timed out
         user, team, player = self.get_query_params()
-        print("Client sent request: Add {player} to the database for {user} and set their team to {team}")
+        print(f"Client sent request: Add {player} to the database for {user} and set their team to {team}")
         if user is None:
             return
         if team.upper() == 'NONE':
             team = None
             
         # Confirm that the player does not currently exist
-        self.validate_player_exists(player)
-        if self.last_write != NOT_FOUND:
+        self.get_user_file(user)
+        new_player = self.validate_player_exists(player, new_player=True)
+        if not new_player:
             print("{player} already exists, unable to process request.")
             self.write_to_pipe(FORBIDDEN)
         # Create a new player object and add it to the users dataset.
         else:
             data = {"name": player,
                     "id": len(self.players),
-                    "current_team": team
+                    "current team": team,
+                    "seasons" : []
                    }
             self.players[player] = Player(data)
             print(f"Added {player} to {user} with team {team}")
+            self.write_to_pipe(SUCCESS)
             self.save_user_data(user)
+        time.sleep(1)
 
     def write_to_pipe(self, contents):
         """
@@ -307,13 +322,15 @@ class Microservice:
         """
         with open(PIPE, "w") as file:
             file.write(contents)
-        print("Wrote the following message to {PIPE}: {content}")
+        print(f"Wrote the following message to {PIPE}: {contents}")
         self.last_write = contents
         
     def route_request(self, content):
         """
         Redirects a client request to the appropriate function
         """
+        if content == FAILED_READ:
+            return
         print(f"Attempting to handle request from client: {content}")
         try:
             self.requests[content]()
@@ -324,8 +341,23 @@ class Microservice:
         """
         Tell the client that an invalid request type was sent
         """
+        if self.last_write == FAILED_READ:
+            return
         print(f"Unable to handle request!")
         self.write_to_pipe(FAILED_READ)
+
+    def get_player_list(self):
+        user, team, player = self.get_query_params()
+        print(f"Client sent request: get all players for user {user}")
+        if user is None:
+            return
+        self.get_user_file(user)
+        print(list(self.players.keys()))
+        message = ""
+        for key in list(self.players.keys()):
+            message += (key + '\n')
+        self.write_to_pipe(message)
+        time.sleep(1)
 
     def quit(self):
         """
@@ -334,3 +366,6 @@ class Microservice:
         self.write_to_pipe('')
         self.last_write = QUIT_REQUEST
         print("Microservice is shutting down.")
+
+if __name__ == '__main__':
+    Microservice()
